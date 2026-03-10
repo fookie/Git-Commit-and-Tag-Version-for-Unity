@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using UnityEditor;
+using UnityEditor.Build.Reporting;
 using UnityEngine;
 
 namespace CommitAndTagVersion.Editor
@@ -122,6 +124,11 @@ namespace CommitAndTagVersion.Editor
             {
                 ExecuteRelease(targetVersion);
             }
+
+            if (GUILayout.Button("Release with Build (Bump, Build, Commit & Tag)", GUILayout.Height(40)))
+            {
+                ExecuteReleaseWithBuild(targetVersion);
+            }
             EditorGUI.EndDisabledGroup();
 
             if (GUILayout.Button("Refresh"))
@@ -157,6 +164,115 @@ namespace CommitAndTagVersion.Editor
             catch (Exception ex)
             {
                 Debug.LogError($"[CommitAndTagVersion] Failed to release: {ex.Message}");
+            }
+        }
+
+        private const string BuildPathPrefKey = "CommitAndTagVersion_LastBuildPath";
+
+        private void ExecuteReleaseWithBuild(string targetVersion)
+        {
+            try
+            {
+                // 1. Update Configs
+                FileUpdater.UpdatePlayerSettings(targetVersion);
+
+                string packageJsonPath = Path.Combine(Directory.GetCurrentDirectory(), "package.json");
+                FileUpdater.UpdatePackageJson(packageJsonPath, targetVersion);
+
+                // 2. Generate Changelog
+                string changelogPath = Path.Combine(Directory.GetCurrentDirectory(), "CHANGELOG.md");
+                ChangelogBuilder.GenerateChangelog(changelogPath, targetVersion, _commitsSinceLastTag);
+
+                // 3. Prompt user to select build output path (remember last used path)
+                BuildTarget activeBuildTarget = EditorUserBuildSettings.activeBuildTarget;
+                string lastBuildPath = EditorPrefs.GetString(BuildPathPrefKey, "");
+                string buildPath = EditorUtility.SaveFolderPanel(
+                    "Select Build Output Folder", lastBuildPath, "");
+
+                if (string.IsNullOrEmpty(buildPath))
+                {
+                    Debug.LogWarning("[CommitAndTagVersion] Build cancelled by user. Version changes are kept but not committed.");
+                    return;
+                }
+
+                // Save the selected path for next time
+                EditorPrefs.SetString(BuildPathPrefKey, buildPath);
+
+                // 4. Gather scenes from Build Settings
+                string[] scenes = EditorBuildSettings.scenes
+                    .Where(s => s.enabled)
+                    .Select(s => s.path)
+                    .ToArray();
+
+                if (scenes.Length == 0)
+                {
+                    Debug.LogError("[CommitAndTagVersion] No scenes enabled in Build Settings. Version changes are kept but not committed.");
+                    return;
+                }
+
+                // Determine the output file path based on target platform
+                string executableName = Application.productName;
+                switch (activeBuildTarget)
+                {
+                    case BuildTarget.StandaloneWindows:
+                    case BuildTarget.StandaloneWindows64:
+                        executableName += ".exe";
+                        break;
+                    case BuildTarget.StandaloneOSX:
+                        executableName += ".app";
+                        break;
+                    case BuildTarget.Android:
+                        executableName += ".apk";
+                        break;
+                }
+
+                string fullBuildPath = Path.Combine(buildPath, executableName);
+
+                // 5. Execute Build
+                Debug.Log($"[CommitAndTagVersion] Starting build for {activeBuildTarget} at: {fullBuildPath}");
+
+                BuildPlayerOptions buildOptions = new BuildPlayerOptions
+                {
+                    scenes = scenes,
+                    locationPathName = fullBuildPath,
+                    target = activeBuildTarget,
+                    options = BuildOptions.None
+                };
+
+                BuildReport report = BuildPipeline.BuildPlayer(buildOptions);
+
+                if (report.summary.result == BuildResult.Succeeded)
+                {
+                    Debug.Log($"[CommitAndTagVersion] Build succeeded! Size: {report.summary.totalSize} bytes, Time: {report.summary.totalTime}");
+
+                    // 6. Git Add, Commit, Tag
+                    GitUtility.Add(".");
+                    string message = $"chore(release): v{targetVersion}";
+                    GitUtility.Commit(message);
+                    GitUtility.Tag($"v{targetVersion}", message);
+
+                    Debug.Log($"[CommitAndTagVersion] Successfully released v{targetVersion} with build.");
+
+                    // 7. Open build output folder in OS file explorer
+                    EditorUtility.RevealInFinder(fullBuildPath);
+
+                    EditorUtility.DisplayDialog("Release with Build",
+                        $"Build succeeded!\nVersion v{targetVersion} has been committed and tagged.\n\nOutput: {fullBuildPath}",
+                        "OK");
+
+                    Refresh();
+                }
+                else
+                {
+                    Debug.LogError($"[CommitAndTagVersion] Build failed with result: {report.summary.result}. Version changes are kept but not committed.");
+                    EditorUtility.DisplayDialog("Release with Build",
+                        $"Build failed ({report.summary.result}).\nVersion changes are kept but NOT committed.\nPlease fix the build issues and try again.",
+                        "OK");
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"[CommitAndTagVersion] Failed to release with build: {ex.Message}");
             }
         }
     }

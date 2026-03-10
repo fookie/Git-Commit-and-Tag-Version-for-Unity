@@ -141,5 +141,14 @@ namespace CommitAndTagVersion.Editor
             }
             return 0;
         }
+
+        /// <summary>
+        /// Reverts all uncommitted changes in the working directory.
+        /// Used to roll back version bumps when a build fails.
+        /// </summary>
+        public static bool RevertAllChanges()
+        {
+            return ExecuteGitCommand("checkout -- .", out _, out _);
+        }
     }
 }
