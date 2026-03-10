@@ -33,22 +33,40 @@
 - `feat: 增加多人联机模块` ✨ （触发版本号 **Minor** 递增：1.0.0 -> 1.1.0）
 - `feat!: 重构核心网络架构，不兼容老服务器` 💥 或在内容中包含 `BREAKING CHANGE:` （触发 **Major** 主版本号递增：1.0.0 -> 2.0.0）
 
-### 2. 在 Unity Editor 中可视化操作（日常发版）
-1. 在顶部菜单栏点击 **Window > Versioning > Commit and Tag Version**。
+### 2. 工具栏快捷按钮
+安装后，Unity 编辑器**主工具栏右侧**会自动出现一个 **🏷️ Release** 快捷按钮，点击即可直接打开版本发布面板，无需通过菜单层层查找。
+
+> **兼容性说明：** Unity 6.3+ (6000.3) 使用官方 `MainToolbarElement` API 注册按钮；低于 6.3 的版本则通过反射注入到工具栏 VisualElement 中，功能一致。
+
+### 3. 在 Unity Editor 中可视化操作（日常发版）
+1. 点击工具栏 **🏷️ Release** 按钮，或在顶部菜单栏点击 **Window > Versioning > Commit and Tag Version**。
 2. 此面板会展示：
    - 当前读取到的最新 Git Tag。
    - 自上次发布以来的所有代码提交（带可视化分类图标）。
    - 根据历史计算出的**下个推荐版本号**。
 3. 如果你想打预发布版，可以在框中填入特定字段（比如 `alpha`、`rc`）。
-4. 点击底部巨大的 **Release** 按钮，一键搞定改版、发版、打 Tag。
+4. 面板底部有两个操作按钮：
+   - **Release** — 一键完成改版、生成 Changelog、Commit、打 Tag。
+   - **Release with Build** — 在 Release 的基础上额外执行项目打包（详见下节）。
 
-### 3. 使用内部开发快照版本 (QA / 提测包)
+### 4. 发版并打包（Release with Build）
+点击 **"Release with Build (Bump, Build, Commit & Tag)"** 按钮后的完整流程：
+1. 自动更新版本号到 `PlayerSettings` 和 `package.json`。
+2. 生成 `CHANGELOG.md`。
+3. 弹出文件夹选择对话框，让你选择打包输出目录（**自动记忆上次选择的路径**）。
+4. 读取 Build Settings 中已勾选的场景，使用当前激活的 Build Target 执行 `BuildPipeline.BuildPlayer()`。
+5. **打包成功** → 自动 `git commit` + `git tag`，并在系统文件管理器中打开输出目录。
+6. **打包失败** → 版本号等变更保留不动，但**不会提交到 Git**，你可以修复问题后重新打包。
+
+> ⚠️ 如果在选择输出目录时点击取消，版本号更新同样会保留但不提交。
+
+### 5. 使用内部开发快照版本 (QA / 提测包)
 如果你不想打正式的递增版本号，而只是想打一个带明确溯源信息的提测包给 QA：
 - 在面板中勾选 **"Generate Internal Developer Version"** 选项。
 - 面板自动将版本号组成 **`基准版本-当前分支名.自上个Tag相差的提交数+当前短Hash`**。（例如：`1.2.0-feature-login.15+a3b8c2d`）。
 - 点击发布后将使用此特定标识生成并盖印。
 
-### 4. CI/CD 无头模式自动流水线构建
+### 6. CI/CD 无头模式自动流水线构建
 如果你使用 Jenkins、GitLab CI、或 GitHub Actions，不需要打开 Unity 面板，工具提供了一行命令行自动发布的调用钩子：
 
 ```bash
